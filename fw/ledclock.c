@@ -30,6 +30,7 @@
 #define BUTTON_LONGPRESS 2000 /* In about 1 ms */
 #define LONGPRESS_HZ     4    /* How fast is autopress working */
 #define BRIGHTNESS       140  /* Base brightness (x/256) */
+#define LED_VOID         10   /* Code for empty digit */
 #define RTC_CALIB        0    /* +-ppm */
 #define RTC_HZ           1024
 #define RAMP_MIN         16   /* Minimal PWM (x/256) */
@@ -43,10 +44,8 @@ typedef unsigned char byte;
 int g_subseconds;
 unsigned int g_seconds_calib_cnt;
 byte g_seconds;
-byte g_minutes_h;
-byte g_minutes_l;
-byte g_hours_h = 1;
-byte g_hours_l = 2;
+byte g_minutes;
+byte g_hours = 12;
 byte g_time_set;
 
 byte g_led_on[4];
@@ -114,32 +113,17 @@ static void calib_dec(void)
 
 static void hours_inc(void)
 {
-	byte hours_term = 10;
-
-	if (g_hours_h == 2)
-		hours_term = 4;
-
-	if (++g_hours_l < hours_term)
-		return;
-	g_hours_l = 0;
-
-	if (++g_hours_h < 3)
-		return;
-	g_hours_h = 0;
+	if (++g_hours >= 24)
+		g_hours = 0;
 }
 
 
 static void minutes_inc(void)
 {
-	if (++g_minutes_l < 10)
-		return;
-	g_minutes_l = 0;
-
-	if (++g_minutes_h < 6)
-		return;
-	g_minutes_h = 0;
-
-	hours_inc();
+	if (++g_minutes >= 60) {
+		g_minutes = 0;
+		hours_inc();
+	}
 }
 
 
@@ -179,20 +163,20 @@ static byte button_handle(byte which)
 static byte decode7seg(byte dig)
 {
 	static const byte lut[] = {
-		~0x3f & 0x7f, /* 0 */
-		~0x06 & 0x7f, /* 1 */
-		~0x5b & 0x7f, /* 2 */
-		~0x4f & 0x7f, /* 3 */
-		~0x66 & 0x7f, /* 4 */
-		~0x6d & 0x7f, /* 5 */
-		~0x7d & 0x7f, /* 6 */
-		~0x07 & 0x7f, /* 7 */
-		~0x7f & 0x7f, /* 8 */
-		~0x6f & 0x7f, /* 9 */
-		~0x00 & 0x7f, /* void */
-		~0x7c & 0x7f, /* b */
-		~0x39 & 0x7f, /* c */
-		~0x79 & 0x7f  /* e */
+		0x3f, /* 0 */
+		0x06, /* 1 */
+		0x5b, /* 2 */
+		0x4f, /* 3 */
+		0x66, /* 4 */
+		0x6d, /* 5 */
+		0x7d, /* 6 */
+		0x07, /* 7 */
+		0x7f, /* 8 */
+		0x6f, /* 9 */
+		0x00, /* LED_VOID*/
+		0x7c, /* b */
+		0x39, /* c */
+		0x79  /* e */
 	};
 
 	return lut[dig];
@@ -225,38 +209,43 @@ static void set_ramp(byte val)
 
 static void refresh_screen(int blanking)
 {
-	switch (g_mode) {
-		case mode_calib:
-			if (g_rtc_calib >= 0)
-				update_digit(0, decode7seg(0xc));
-			else
-				update_digit(0, decode7seg(0xe));
+	byte digit[4] = { LED_VOID, LED_VOID, LED_VOID, LED_VOID };
 
-			update_digit(1, decode7seg((g_rtc_calib / 100) % 10));
-			update_digit(2, decode7seg((g_rtc_calib / 10) % 10));
-			update_digit(3, decode7seg(g_rtc_calib % 10));
+	switch (g_mode) {
+		case mode_calib: {
+			int calib_tmp = g_rtc_calib;
+			if (calib_tmp < 0) {
+				digit[0] = 0xe;
+				calib_tmp = -calib_tmp;
+			}
+			else {
+				digit[0] = 0xc;
+			}
+
+			for (signed char i = 3; i > 0; --i) {
+				digit[i] = calib_tmp % 10;
+				calib_tmp /= 10;
+			}
 			break;
+		}
 
 		case mode_brightness:
-			update_digit(0, decode7seg(0xb));
-			update_digit(1, decode7seg(10)); /* void */
-			update_digit(2, decode7seg(10)); /* void */
-			update_digit(3, decode7seg(g_brightness));
+			digit[0] = 0xb;
+			digit[3] = g_brightness;
 			break;
 
 		default:
-			if (blanking) {
-				for (byte i = 0; i < 4; ++i)
-					update_digit(i, 10); /* void */
-			}
-			else {
-				update_digit(0, decode7seg(g_hours_h));
-				update_digit(1, decode7seg(g_hours_l));
-				update_digit(2, decode7seg(g_minutes_h));
-				update_digit(3, decode7seg(g_minutes_l));
+			if (!blanking) {
+				digit[0] = g_hours / 10;
+				digit[1] = g_hours % 10;
+				digit[2] = g_minutes / 10;
+				digit[3] = g_minutes % 10;
 			}
 			break;
 	}
+
+	for (byte i = 0; i < 4; ++i)
+		update_digit(i, decode7seg(digit[i]));
 
 	set_ramp(RAMP_MIN);
 }
@@ -308,26 +297,21 @@ ISR(INT0_vect)
 	if (++g_subseconds >= RTC_HZ) {
 		g_subseconds -= RTC_HZ;
 		if (++g_seconds >= 60) {
-			g_seconds = 0;
 			minutes_inc();
 			update = 1;
 		}
 
 		if (g_seconds & 1) {
-			set_dots(1);
-			blanking = 1;
+			set_dots(0);
+			if (!g_time_set)
+				blanking = 1;
 		}
 		else {
-			set_dots(0);
+			set_dots(1);
 		}
 
-		if (!g_time_set)
-			update = 1;
-		else
-			blanking = 0;
-
 		if (++g_seconds_calib_cnt >= RTC_HZ) {
-			g_subseconds += RTC_CALIB;
+			g_subseconds += g_rtc_calib;
 			g_seconds_calib_cnt = 0;
 		}
 	}
@@ -375,9 +359,12 @@ ISR(INT0_vect)
 /* Select new digit */
 ISR(TIMER0_OVF_vect)
 {
-	PORTB = (g_led_on[g_curr_digit] |
+	byte t = PORTB & ~(0x7f);
+
+	PORTB = t | ((g_led_on[g_curr_digit] |
 		g_led_rampup[g_curr_digit]) &
-		~g_led_rampdown[g_curr_digit];
+		~g_led_rampdown[g_curr_digit]);
+
 	PORTD &= ~(1 << (3 + g_curr_digit));
 }
 
@@ -395,7 +382,7 @@ ISR(TIMER0_COMPA_vect)
 /* Disable screen (brightness control) */
 ISR(TIMER0_COMPB_vect)
 {
-	PORTB = 0;
+	PORTB &= ~(0x7f);
 	PORTD |= 0xf << 3;
 	g_curr_digit = (g_curr_digit + 1) % 4;
 
