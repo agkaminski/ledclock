@@ -1,13 +1,13 @@
 all: ledclock.c
-	avr-gcc -Os -mmcu=attiny2313 -Wall ledclock.c -o ledclock
-	avr-objcopy -Oihex ledclock ledclock.hex
-	size -A -d ledclock
+	avr-gcc -Os -mmcu=attiny2313 -Wall ledclock.c -o bin/ledclock
+	avr-objcopy -Oihex bin/ledclock bin/ledclock.hex
+	size -A -d bin/ledclock
 
 fuse:
 	avrdude -cusbasp -pt2313 -U lfuse:w:0xe4:m
 
 install:
-	avrdude -cusbasp -pt2313 -U flash:w:ledclock.hex:i
+	avrdude -cusbasp -pt2313 -U flash:w:bin/ledclock.hex:i
 
 clean:
-	rm -f ledclock.hex ledclock
+	rm -f bin/*
