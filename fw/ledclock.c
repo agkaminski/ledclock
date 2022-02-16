@@ -14,7 +14,8 @@
  * - RTC calibration with 1 ppm precision (+- 999 ppms),
  * - slow, gradual enabling/disabling changed screen segments (PWM),
  * - brightness setting (0-7),
- * - watchdog.
+ * - watchdog,
+ * - calibration and brighness storage on eeprom.
  *
  * Copyright 2022 Aleksander Kaminski
  *
@@ -25,17 +26,18 @@
 #include <avr/io.h>
 #include <avr/sleep.h>
 #include <avr/wdt.h>
+#include <avr/eeprom.h>
 
 #define BUTTON_COOLDOWN  200  /* In about 1 ms */
 #define BUTTON_LONGPRESS 2000 /* In about 1 ms */
 #define LONGPRESS_HZ     4    /* How fast is autopress working */
-#define BRIGHTNESS       140  /* Base brightness (x/256) */
+#define BRIGHTNESS       50   /* Base brightness (x/256) */
 #define LED_VOID         10   /* Code for empty digit */
 #define RTC_CALIB        0    /* +-ppm */
-#define RTC_HZ           1024
-#define RAMP_MIN         16   /* Minimal PWM (x/256) */
-#define RAMP_MAX         (BRIGHTNESS + (g_brightness * 16) - 16)
-#define RAMP_INC         4    /* Increased on every screen refresh (122 Hz) */
+#define RTC_HZ           2048
+#define RAMP_MIN         10   /* Minimal PWM (x/256) */
+#define RAMP_MAX         (BRIGHTNESS + (g_brightness * 25) - 10)
+#define RAMP_INC         2    /* Increased on every screen refresh (122 Hz) */
 
 
 typedef unsigned char byte;
@@ -75,8 +77,43 @@ byte g_brightness = 4;
 
 static void set_brightness(void)
 {
-	OCR0B = BRIGHTNESS + (g_brightness * 16);
+	OCR0B = BRIGHTNESS + (g_brightness * 25);
 }
+
+
+static void store_params(void)
+{
+	uint16_t *ptr = (void *)0;
+
+	eeprom_write_word(ptr++, g_rtc_calib);
+	eeprom_write_word(ptr++, g_brightness);
+}
+
+
+static void restore_params(void)
+{
+	uint16_t *ptr = (void *)0;
+	byte dataok = 1;
+
+	g_rtc_calib = eeprom_read_word(ptr++);
+	g_brightness = eeprom_read_word(ptr);
+
+	if (g_rtc_calib > 999 || g_rtc_calib < -999) {
+		g_rtc_calib = 0;
+		dataok = 0;
+	}
+
+	if (g_brightness > 8) {
+		g_brightness = 4;
+		dataok = 0;
+	}
+
+	if (!dataok)
+		store_params();
+
+	set_brightness();
+}
+
 
 
 static void brightness_inc(void)
@@ -115,6 +152,8 @@ static void hours_inc(void)
 {
 	if (++g_hours >= 24)
 		g_hours = 0;
+
+	g_seconds = 0;
 }
 
 
@@ -124,6 +163,8 @@ static void minutes_inc(void)
 		g_minutes = 0;
 		hours_inc();
 	}
+
+	g_seconds = 0;
 }
 
 
@@ -176,6 +217,7 @@ static byte decode7seg(byte dig)
 		0x00, /* LED_VOID*/
 		0x7c, /* b */
 		0x39, /* c */
+		0x5e, /* d */
 		0x79  /* e */
 	};
 
@@ -301,6 +343,9 @@ ISR(INT0_vect)
 			update = 1;
 		}
 
+		if (!g_time_set)
+			update = 1;
+
 		if (g_seconds & 1) {
 			set_dots(0);
 			if (!g_time_set)
@@ -311,8 +356,14 @@ ISR(INT0_vect)
 		}
 
 		if (++g_seconds_calib_cnt >= RTC_HZ) {
-			g_subseconds += g_rtc_calib;
+			g_subseconds += g_rtc_calib * 2;
 			g_seconds_calib_cnt = 0;
+		}
+
+		if (g_mode != mode_normal && ++g_mode_timeout > 5) {
+			g_mode = mode_normal;
+			update = 1;
+			store_params();
 		}
 	}
 
@@ -324,8 +375,10 @@ ISR(INT0_vect)
 	}
 	else if (g_button_state[0] == button_longpress &&
 			g_button_state[1] == button_longpress) {
-		if (++g_mode == mode_end)
+		if (++g_mode == mode_end) {
 			g_mode = mode_normal;
+			store_params();
+		}
 
 		g_button_state[0] = g_button_state[1] = button_lockup;
 		update = 1;
@@ -339,11 +392,6 @@ ISR(INT0_vect)
 			button_action(1);
 		else
 			btrigger = 0;
-	}
-
-	if (g_mode != mode_normal && ++g_mode_timeout > 5) {
-		g_mode = mode_normal;
-		update = 1;
 	}
 
 	if (btrigger) {
@@ -422,6 +470,8 @@ int main(void)
 	TIMSK |= (1 << OCIE0B) | (1 << TOIE0) | (1 << OCIE0A);
 	/* Enable counter (1/64 prescaler) */
 	TCCR0B = (1 << CS01) | (1 << CS00);
+
+	restore_params();
 
 	sleep_enable();
 	sei();
