@@ -296,7 +296,7 @@ static void refresh_screen(int blanking)
 static void set_dots(int state)
 {
 	PORTB &= ~(!state << 7);
-	PORTB |= !state << 7;
+	PORTB |= !!state << 7;
 }
 
 
@@ -408,10 +408,12 @@ ISR(INT0_vect)
 ISR(TIMER0_OVF_vect)
 {
 	byte t = PORTB & ~(0x7f);
+	byte dot = PORTB & 0x80;
 
-	PORTB = t | ((g_led_on[g_curr_digit] |
+	t |= ((g_led_on[g_curr_digit] |
 		g_led_rampup[g_curr_digit]) &
 		~g_led_rampdown[g_curr_digit]);
+	PORTB = (t & ~0x80) | dot;
 
 	PORTD &= ~(1 << (3 + g_curr_digit));
 }
@@ -421,8 +423,9 @@ ISR(TIMER0_OVF_vect)
 ISR(TIMER0_COMPA_vect)
 {
 	if (g_rampcnt < RAMP_MAX) {
+		byte dot = PORTB & 0x80;
 		byte t = PORTB & ~(g_led_rampup[g_curr_digit]);
-		PORTB = t | g_led_rampdown[g_curr_digit];
+		PORTB = dot | ((t | g_led_rampdown[g_curr_digit]) & 0x7f);
 	}
 }
 
