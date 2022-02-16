@@ -2,7 +2,7 @@
 Big DIY clock based on LED filaments.
 # Introduction
 LEDclock project is a simple, yet very big and bright clock based on chinesium 3V LED filaments (designed to look like a incadescent bulb tungsten filament... from the distance, I guess).<br><br>
-![LEDclock](ledclock.jpeg "LEDclock")
+![LEDclock](img/ledclock.jpeg "LEDclock")
 # Features
 - 24 hour clock,
 - time setting via two buttons (one for minutes, one for hours),
@@ -45,13 +45,13 @@ than we can download FW:<br>
 Done! Clock should now be ready to be used.
 ## Housing 3D print
 Housing is too big for most 3D printers to fit, so it was designed to be able to split into 3 parts. You need to split 30 mm on both sides. Three pieces can then be reattached by using 4 M4x25 (conical head) and 2 M3x20 screws. Many other screws lenght will do the trick. PCB is attached to the housing using 2 M3x10 screws.<br><br>
-![Housing split on the buildplate](3dprint.png "Housing split on the buildplate")
+![Housing split on the buildplate](img/3dprint.png "Housing split on the buildplate")
 # License
 Free for non-commercial use and education purposes. See LICENSE.md for details.
 # Donations
 If you like my project and would like to endorse me you can donate any BTC amount to the address:<br><br>
 3EL4b7g72awqXzzVFQan2h2PmizMhSSYMX<br><br>
-![Donation](donate.png "Donation")
+![Donation](img/donate.png "Donation")
 # Photos
-![Top](top.jpeg "Top")<br><br>
-![Bottom](bottom.jpeg "Bottom")
+![Top](img/top.jpeg "Top")<br><br>
+![Bottom](img/bottom.jpeg "Bottom")
