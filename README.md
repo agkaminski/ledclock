@@ -46,6 +46,10 @@ Done! The clock should now be ready to be used.
 ## Housing 3D print
 Housing is too big for most 3D printers to fit, so it was designed to be able to split into 3 parts. You need to split 30 mm on both sides. Three pieces can then be reattached by using 4 M4x25 (conical head) and 2 M3x50 screws. Many other screw lengths will do the trick. PCB is attached to the housing using 2 M3x8 screws.<br><br>
 ![Housing split on the build plate](img/3dprint.png "Housing split on the build plate")
+## Filter
+LED filaments give huge brightness but poor constrast - filter is needed. Print 4 times *filter.stl*, use dark filament for best result, 0.2 mm layer height. Put them into slots on the top side and hold them in place with a little drops of superglue.<br>
+Screen without the filters:<br>
+![Nofilter](img/nofilter.jpeg "No filter")
 # License
 Free for non-commercial use and educational purposes. See LICENSE.md for details.
 # Donations
