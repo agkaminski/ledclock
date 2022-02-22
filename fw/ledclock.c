@@ -32,11 +32,12 @@
 #define BUTTON_LONGPRESS 2000 /* In about 1 ms */
 #define LONGPRESS_HZ     4    /* How fast is autopress working */
 #define BRIGHTNESS       50   /* Base brightness (x/256) */
+#define BRIGHTNESS_STEP  25
 #define LED_VOID         10   /* Code for empty digit */
 #define RTC_CALIB        0    /* +-ppm */
 #define RTC_HZ           2048
 #define RAMP_MIN         10   /* Minimal PWM (x/256) */
-#define RAMP_MAX         (BRIGHTNESS + (g_brightness * 25) - 10)
+#define RAMP_MAX         (BRIGHTNESS + (g_brightness * BRIGHTNESS_STEP) - 10)
 #define RAMP_INC         2    /* Increased on every screen refresh (122 Hz) */
 
 
@@ -77,7 +78,7 @@ byte g_brightness = 4;
 
 static void set_brightness(void)
 {
-	OCR0B = BRIGHTNESS + (g_brightness * 25);
+	OCR0B = BRIGHTNESS + (g_brightness * BRIGHTNESS_STEP);
 }
 
 
@@ -86,7 +87,7 @@ static void store_params(void)
 	uint16_t *ptr = (void *)0;
 
 	eeprom_write_word(ptr++, g_rtc_calib);
-	eeprom_write_word(ptr++, g_brightness);
+	eeprom_write_word(ptr, g_brightness);
 }
 
 
@@ -99,7 +100,7 @@ static void restore_params(void)
 	g_brightness = eeprom_read_word(ptr);
 
 	if (g_rtc_calib > 999 || g_rtc_calib < -999) {
-		g_rtc_calib = 0;
+		g_rtc_calib = RTC_CALIB;
 		dataok = 0;
 	}
 
@@ -136,14 +137,14 @@ static void brightness_dec(void)
 
 static void calib_inc(void)
 {
-	if (g_rtc_calib < 1000)
+	if (g_rtc_calib < 999)
 		++g_rtc_calib;
 }
 
 
 static void calib_dec(void)
 {
-	if (g_rtc_calib > -1000)
+	if (g_rtc_calib > -999)
 		--g_rtc_calib;
 }
 
