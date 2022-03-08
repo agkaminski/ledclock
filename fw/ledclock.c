@@ -39,6 +39,8 @@
 #define RAMP_MIN         10   /* Minimal PWM (x/256) */
 #define RAMP_MAX         (BRIGHTNESS + (g_brightness * BRIGHTNESS_STEP) - 10)
 #define RAMP_INC         2    /* Increased on every screen refresh (122 Hz) */
+#define ADDR_CALIBRATION ((void *)0)
+#define ADDR_BRIGHNESS   ((void *)2)
 
 
 typedef unsigned char byte;
@@ -84,20 +86,17 @@ static void set_brightness(void)
 
 static void store_params(void)
 {
-	uint16_t *ptr = (void *)0;
-
-	eeprom_write_word(ptr++, g_rtc_calib);
-	eeprom_write_word(ptr, g_brightness);
+	eeprom_write_word(ADDR_CALIBRATION, g_rtc_calib);
+	eeprom_write_word(ADDR_BRIGHNESS, g_brightness);
 }
 
 
-static void restore_params(void)
+static inline void restore_params(void)
 {
-	uint16_t *ptr = (void *)0;
 	byte dataok = 1;
 
-	g_rtc_calib = eeprom_read_word(ptr++);
-	g_brightness = eeprom_read_word(ptr);
+	g_rtc_calib = eeprom_read_word(ADDR_CALIBRATION);
+	g_brightness = eeprom_read_word(ADDR_BRIGHNESS);
 
 	if (g_rtc_calib > 999 || g_rtc_calib < -999) {
 		g_rtc_calib = RTC_CALIB;
@@ -117,7 +116,7 @@ static void restore_params(void)
 
 
 
-static void brightness_inc(void)
+static inline void brightness_inc(void)
 {
 	if (g_brightness < 8)
 		++g_brightness;
@@ -126,7 +125,7 @@ static void brightness_inc(void)
 }
 
 
-static void brightness_dec(void)
+static inline void brightness_dec(void)
 {
 	if (g_brightness > 0)
 		--g_brightness;
@@ -135,14 +134,14 @@ static void brightness_dec(void)
 }
 
 
-static void calib_inc(void)
+static inline void calib_inc(void)
 {
 	if (g_rtc_calib < 999)
 		++g_rtc_calib;
 }
 
 
-static void calib_dec(void)
+static inline void calib_dec(void)
 {
 	if (g_rtc_calib > -999)
 		--g_rtc_calib;
@@ -183,6 +182,7 @@ static byte button_handle(byte which)
 		if (g_button_presscnt[which] < BUTTON_LONGPRESS) {
 			++g_button_presscnt[which];
 
+			/* Debouncing */
 			if (g_button_state[which] == button_not_active &&
 					g_button_presscnt[which] >= BUTTON_COOLDOWN) {
 				g_button_state[which] = button_active;
@@ -215,7 +215,7 @@ static byte decode7seg(byte dig)
 		0x07, /* 7 */
 		0x7f, /* 8 */
 		0x6f, /* 9 */
-		0x00, /* LED_VOID*/
+		0x00, /* LED_VOID */
 		0x7c, /* b */
 		0x39, /* c */
 		0x5e, /* d */
@@ -226,6 +226,14 @@ static byte decode7seg(byte dig)
 }
 
 
+/* This function handles updating each screen digit.
+ * Segments that are being enabled are not enabled
+ * instantly, instead are put in separate ramp-up
+ * register and being slowly lit on using PWM.
+ * Same applies to segments that are being disabled,
+ * but these are handled by ramp-down register.
+ * As PWM for ramp-up increased, at the same time
+ * PWM for ramp-down decreases. */
 static void update_digit(byte which, byte newval)
 {
 	g_led_on[which] |= g_led_rampup[which];
@@ -303,6 +311,7 @@ static void set_dots(int state)
 
 static void button_action(byte which)
 {
+	/* switch()...case takes less flash space than funtion LUT */
 	switch (g_mode) {
 		case mode_calib:
 			if (!which)
@@ -337,8 +346,11 @@ ISR(INT0_vect)
 
 	wdt_reset();
 
+	/* Every second */
 	if (++g_subseconds >= RTC_HZ) {
 		g_subseconds -= RTC_HZ;
+
+		/* Increment clock */
 		if (++g_seconds >= 60) {
 			minutes_inc();
 			update = 1;
@@ -347,6 +359,7 @@ ISR(INT0_vect)
 		if (!g_time_set)
 			update = 1;
 
+		/* Handle dots and screen blinking when time is not set */
 		if (g_seconds & 1) {
 			set_dots(0);
 			if (!g_time_set)
@@ -356,11 +369,13 @@ ISR(INT0_vect)
 			set_dots(1);
 		}
 
+		/* Handle digital RTC calibration */
 		if (++g_seconds_calib_cnt >= RTC_HZ) {
 			g_subseconds += g_rtc_calib * 2;
 			g_seconds_calib_cnt = 0;
 		}
 
+		/* Handle special mode timeout */
 		if (g_mode != mode_normal && ++g_mode_timeout > 5) {
 			g_mode = mode_normal;
 			update = 1;
@@ -368,10 +383,11 @@ ISR(INT0_vect)
 		}
 	}
 
-	if ((btrigger = button_handle(0))) {
+	/* Handle buttons */
+	if ((btrigger = button_handle(0)) != 0) {
 		button_action(0);
 	}
-	else if ((btrigger = button_handle(1))) {
+	else if ((btrigger = button_handle(1)) != 0) {
 		button_action(1);
 	}
 	else if (g_button_state[0] == button_longpress &&
@@ -384,8 +400,7 @@ ISR(INT0_vect)
 		g_button_state[0] = g_button_state[1] = button_lockup;
 		update = 1;
 	}
-	else if (g_mode == mode_normal &&
-			!(g_subseconds % (RTC_HZ / LONGPRESS_HZ))) {
+	else if (!(g_subseconds % (RTC_HZ / LONGPRESS_HZ))) {
 		btrigger = 1;
 		if (g_button_state[0] == button_longpress)
 			button_action(0);
@@ -411,6 +426,7 @@ ISR(TIMER0_OVF_vect)
 	byte t = PORTB & ~(0x7f);
 	byte dot = PORTB & 0x80;
 
+	/* Enable on and ramp-up segments, ramp-down stay disabled */
 	t |= ((g_led_on[g_curr_digit] |
 		g_led_rampup[g_curr_digit]) &
 		~g_led_rampdown[g_curr_digit]);
@@ -425,6 +441,7 @@ ISR(TIMER0_COMPA_vect)
 {
 	if (g_rampcnt < RAMP_MAX) {
 		byte dot = PORTB & 0x80;
+		/* Disable ramp-up segments, enable ramp-down */
 		byte t = PORTB & ~(g_led_rampup[g_curr_digit]);
 		PORTB = dot | ((t | g_led_rampdown[g_curr_digit]) & 0x7f);
 	}
@@ -475,8 +492,11 @@ int main(void)
 	/* Enable counter (1/64 prescaler) */
 	TCCR0B = (1 << CS01) | (1 << CS00);
 
+	/* Fetch brighness and calibration from eeprom */
 	restore_params();
 
+	/* Whole operation is performed in interrupts.
+	 * Stay asleep if there's no interrupt active */
 	sleep_enable();
 	sei();
 
